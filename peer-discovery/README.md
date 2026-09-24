@@ -15,6 +15,7 @@ peer-discovery/
 ├── docker.yml
 ├── docker4.yml
 ├── docker6.yml
+├── README.md
 ├── include/
 │   ├── common.h            # константы, Config, Sockets
 │   └── PeerDiscovery.h     # класс PeerDiscovery
