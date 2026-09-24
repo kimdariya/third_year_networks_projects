@@ -1,13 +1,17 @@
 #include "../include/PeerDiscovery.h"
 
-std::atomic<bool> run{true};
+PeerDiscovery* PeerDiscovery::instance_ = nullptr;
 
-static void on_sig(int) { run = false; }
+void PeerDiscovery::on_sig(int) {
+    if (instance_) instance_->run_ = false;
+}
 
-PeerDiscovery::PeerDiscovery(const Config& cfg) : cfg_(cfg) {}
+PeerDiscovery::PeerDiscovery(const Config& cfg) : cfg_(cfg) {
+    instance_ = this;
+}
 
 PeerDiscovery::~PeerDiscovery() {
-    run = false;
+    run_ = false;
     if (sender_.joinable()) {
         sender_.join();
     }
@@ -16,13 +20,12 @@ PeerDiscovery::~PeerDiscovery() {
         receiver_.join();
     }
 
-    if (socks_.recv_sock >= 0) {
-        close(socks_.recv_sock);
+    close_socks(socks_);
+
+    if (instance_ == this) {
+        instance_ = nullptr;
     }
 
-    if (socks_.send_sock >= 0) {
-        close(socks_.send_sock);
-    }
 }
 
 int PeerDiscovery::running() {
@@ -41,18 +44,28 @@ int PeerDiscovery::running() {
     return 0;
 }
 
+void PeerDiscovery::close_socks(Sockets& s) {
+    if (s.recv_sock >= 0) { close(s.recv_sock); s.recv_sock = -1; }
+    if (s.send_sock >= 0) { close(s.send_sock); s.send_sock = -1; }
+}
+
 void PeerDiscovery::setup_sockets() {
     socks_.recv_sock = socket(cfg_.family, SOCK_DGRAM, 0);
     socks_.send_sock = socket(cfg_.family, SOCK_DGRAM, 0);
     if (socks_.recv_sock < 0 || socks_.send_sock < 0) {
         perror("socket");
-        socks_.recv_sock = socks_.send_sock = -1;
+        close_socks(socks_);
         return;
     }
 
     int one = 1;
-    setsockopt(socks_.recv_sock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-    setsockopt(socks_.recv_sock, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
+    if (setsockopt(socks_.recv_sock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) < 0) {
+        perror("SO_REUSEADDR");
+    }
+
+    if (setsockopt(socks_.recv_sock, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one)) < 0) {
+        perror("SO_REUSEPORT");
+    }
 
     if (cfg_.family == AF_INET) {
         sockaddr_in ra{};
@@ -61,7 +74,7 @@ void PeerDiscovery::setup_sockets() {
         ra.sin_port        = htons(cfg_.port);
         if (bind(socks_.recv_sock, reinterpret_cast<sockaddr*>(&ra), sizeof(ra)) < 0) {
             perror("bind recv");
-            socks_.recv_sock = socks_.send_sock = -1;
+            close_socks(socks_);
             return;
         }
 
@@ -70,7 +83,7 @@ void PeerDiscovery::setup_sockets() {
         m.imr_interface.s_addr = INADDR_ANY;
         if (setsockopt(socks_.recv_sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &m, sizeof(m)) < 0) {
             perror("join4");
-            socks_.recv_sock = socks_.send_sock = -1;
+            close_socks(socks_);
             return;
         }
 
@@ -80,14 +93,27 @@ void PeerDiscovery::setup_sockets() {
         sa.sin_port        = 0;
         if (bind(socks_.send_sock, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) < 0) {
             perror("bind send");
-            socks_.recv_sock = socks_.send_sock = -1;
+            close_socks(socks_);
             return;
+        }
+
+        sockaddr_in self{};
+        socklen_t slen = sizeof(self);
+        if (getsockname(socks_.send_sock, reinterpret_cast<sockaddr*>(&self), &slen) < 0) {
+            perror("getsockname");
+        } else {
+            self_port_ = ntohs(self.sin_port);
         }
 
         unsigned char ttl   = 1;
         unsigned char sloop = 1;
-        setsockopt(socks_.send_sock, IPPROTO_IP, IP_MULTICAST_TTL,  &ttl,   sizeof(ttl));
-        setsockopt(socks_.send_sock, IPPROTO_IP, IP_MULTICAST_LOOP, &sloop, sizeof(sloop));
+        if (setsockopt(socks_.send_sock, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl)) < 0) {
+            perror("IP_MULTICAST_TTL");
+        }
+
+        if (setsockopt(socks_.send_sock, IPPROTO_IP, IP_MULTICAST_LOOP, &sloop, sizeof(sloop)) < 0) {
+            perror("IP_MULTICAST_LOOP");
+        }
 
     } else {
         sockaddr_in6 ra{};
@@ -96,16 +122,26 @@ void PeerDiscovery::setup_sockets() {
         ra.sin6_port   = htons(cfg_.port);
         if (bind(socks_.recv_sock, reinterpret_cast<sockaddr*>(&ra), sizeof(ra)) < 0) {
             perror("bind recv");
-            socks_.recv_sock = socks_.send_sock = -1;
+            close_socks(socks_);
             return;
+        }
+
+        unsigned int ifidx = 0;
+        if (!cfg_.iface.empty()) {
+            ifidx = if_nametoindex(cfg_.iface.c_str());
+            if (ifidx == 0) {
+                perror("if_nametoindex");
+                close_socks(socks_);
+                return;
+            }
         }
 
         ipv6_mreq m{};
         inet_pton(AF_INET6, cfg_.group.c_str(), &m.ipv6mr_multiaddr);
-        m.ipv6mr_interface = 0;
+        m.ipv6mr_interface = ifidx;
         if (setsockopt(socks_.recv_sock, IPPROTO_IPV6, IPV6_JOIN_GROUP, &m, sizeof(m)) < 0) {
             perror("join6");
-            socks_.recv_sock = socks_.send_sock = -1;
+            close_socks(socks_);
             return;
         }
 
@@ -115,34 +151,57 @@ void PeerDiscovery::setup_sockets() {
         sa.sin6_port   = 0;
         if (bind(socks_.send_sock, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) < 0) {
             perror("bind send");
-            socks_.recv_sock = socks_.send_sock = -1;
+            close_socks(socks_);
             return;
+        }
+
+        if (ifidx != 0) {
+            if (setsockopt(socks_.send_sock, IPPROTO_IPV6, IPV6_MULTICAST_IF, &ifidx, sizeof(ifidx)) < 0) {
+                perror("IPV6_MULTICAST_IF");
+            }
+        }
+
+        sockaddr_in6 self{};
+        socklen_t slen = sizeof(self);
+        if (getsockname(socks_.send_sock, reinterpret_cast<sockaddr*>(&self), &slen) < 0) {
+            perror("getsockname");
+        } else {
+            self_port_ = ntohs(self.sin6_port);
         }
 
         int hops = 1;
         unsigned int sloop6 = 1;
-        setsockopt(socks_.send_sock, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &hops,   sizeof(hops));
-        setsockopt(socks_.send_sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &sloop6, sizeof(sloop6));
+        if (setsockopt(socks_.send_sock, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &hops, sizeof(hops)) < 0) {
+            perror("IPV6_MULTICAST_HOPS");
+        }
+
+        if (setsockopt(socks_.send_sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &sloop6, sizeof(sloop6)) < 0) {
+            perror("IPV6_MULTICAST_LOOP");
+        }
     }
 }
 
 void PeerDiscovery::sender_loop() {
-    while (run) {
+    while (run_) {
         if (cfg_.family == AF_INET) {
             sockaddr_in d{};
             d.sin_family = AF_INET;
             d.sin_port   = htons(cfg_.port);
             inet_pton(AF_INET, cfg_.group.c_str(), &d.sin_addr);
-            sendto(socks_.send_sock, PEER_MSG, PEER_MSG_LEN, 0, reinterpret_cast<sockaddr*>(&d), sizeof(d));
+            if (sendto(socks_.send_sock, PEER_MSG, PEER_MSG_LEN, 0,reinterpret_cast<sockaddr*>(&d), sizeof(d)) < 0) {
+                perror("sendto");
+            }
         } else {
             sockaddr_in6 d{};
             d.sin6_family = AF_INET6;
             d.sin6_port   = htons(cfg_.port);
             inet_pton(AF_INET6, cfg_.group.c_str(), &d.sin6_addr);
-            sendto(socks_.send_sock, PEER_MSG, PEER_MSG_LEN, 0, reinterpret_cast<sockaddr*>(&d), sizeof(d));
+            if (sendto(socks_.send_sock, PEER_MSG, PEER_MSG_LEN, 0,reinterpret_cast<sockaddr*>(&d), sizeof(d)) < 0) {
+                perror("sendto");
+            }
         }
 
-        for (int i = 0; i < SEND_INTERVAL_MS / SLEEP_STEP_MS && run; ++i)
+        for (int i = 0; i < SEND_INTERVAL_MS / SLEEP_STEP_MS && run_; ++i)
             std::this_thread::sleep_for(milliseconds(SLEEP_STEP_MS));
     }
 }
@@ -150,7 +209,7 @@ void PeerDiscovery::sender_loop() {
 void PeerDiscovery::receiver_loop() {
     char buf[BUF_SIZE];
 
-    while (run) {
+    while (run_) {
         fd_set rf;
         FD_ZERO(&rf);
         FD_SET(socks_.recv_sock, &rf);
@@ -189,6 +248,8 @@ void PeerDiscovery::handle_packet(const char* buf, ssize_t n, const sockaddr_sto
     } else {
         return;
     }
+
+    if (port == self_port_) return;
 
     std::string key = std::string(ip) + ":" + std::to_string(port);
     bool is_new = (peers_.find(key) == peers_.end());

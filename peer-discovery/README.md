@@ -12,7 +12,6 @@
 peer-discovery/
 ├── CMakeLists.txt
 ├── Dockerfile
-├── docker.yml
 ├── docker4.yml
 ├── docker6.yml
 ├── README.md
@@ -43,13 +42,14 @@ cmake --build .
 ## Запуск
 
 ```
-./peer-discovery <multicast-адрес> [порт=4446]
+./peer-discovery <multicast-адрес> [порт=4446] [интерфейс]
 ```
 
 | Аргумент | Обязательный | Описание |
 |---|---|---|
 | `<multicast-адрес>` | да | Адрес multicast-группы (IPv4 / IPv6) |
 | `[порт]` | нет | UDP-порт, по умолчанию `4446` |
+| `[интерфейс]` | нет | Имя сетевого интерфейса, например `eth0`. Актуально для IPv6 |
 
 Примеры:
 
@@ -68,7 +68,6 @@ cmake --build .
 
 Файлы:
 
-- `docker.yml` — создаёт сеть `lab_1_lan` с IPv4 (`172.20.0.0/24`) и IPv6 (`fd00:20::/64`);
 - `docker4.yml` — два контейнера для IPv4-режима (`peer-a4`, `peer-b4`);
 - `docker6.yml` — два контейнера для IPv6-режима (`peer-a6`, `peer-b6`);
 - `Dockerfile` — образ для сборки приложения.
@@ -76,20 +75,20 @@ cmake --build .
 ### IPv4
 
 ```
-docker compose -f docker.yml -f docker4.yml up --build
+docker compose -f docker4.yml up --build
 ```
 
 ### IPv6
 
 ```
-docker compose -f docker.yml -f docker6.yml up --build
+docker compose -f docker6.yml up --build
 ```
 
 ### Остановка
 
 ```
-docker compose -f docker.yml -f docker4.yml down
-docker compose -f docker.yml -f docker6.yml down
+docker compose -f docker4.yml down
+docker compose -f docker6.yml down
 ```
 
 ---
@@ -98,15 +97,17 @@ docker compose -f docker.yml -f docker6.yml down
 
 При старте каждая копия создаёт два UDP-сокета: `recv_sock` для приёма (bind на порт и подписка на multicast-группу) и `send_sock` для отправки. Включены `SO_REUSEADDR` и `SO_REUSEPORT`, чтобы несколько копий могли работать на одной машине.
 
-Каждые 2 секунды копия рассылает в multicast-группу сообщение `PEER`. Протокол IPv4/IPv6 определяется автоматически по типу переданного адреса через `inet_pton`: для IPv4 используется `IP_ADD_MEMBERSHIP`, для IPv6 — `IPV6_JOIN_GROUP`.
+Каждые 2 секунды копия рассылает в multicast-группу сообщение `PEER`. Протокол IPv4/IPv6 определяется автоматически по типу переданного адреса через `inet_pton`: для IPv4 используется `IP_ADD_MEMBERSHIP`, для IPv6 — `IPV6_JOIN_GROUP`. 
+
+Для IPv6, если задан интерфейс, дополнительно устанавливается `IPV6_MULTICAST_IF`.
 
 Отдельный поток принимает датаграммы через `select()` с таймаутом 100 мс, проверяет сигнатуру и запоминает узел по ключу `IP:PORT` вместе со временем последнего пакета.
 
-Фоновый поток каждые 100 мс проверяет, не "умер" ли какой-то узел (нет heartbeat дольше 6 секунд) — если да, узел считается умершим и удаляется.
+Проверка таймаутов выполняется в receiver_loop после каждого пробуждения select() (таймаут 100 мс); при изменении состава узлов список перепечатывается.
 
 Список печатается заново при любом изменении набора живых IP-адресов (появление нового узла, исчезновение старого).
 
-Корректное завершение: по `SIGINT`/`SIGTERM` флаг `run` сбрасывается, оба потока завершаются, сокеты закрываются в деструкторе.
+Корректное завершение: по SIGINT/SIGTERM статический обработчик через instance_ сбрасывает run_, оба потока завершаются, сокеты закрываются в деструкторе.
 
 ---
 

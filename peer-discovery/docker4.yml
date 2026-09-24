@@ -15,5 +15,9 @@ services:
 
 networks:
   lan:
-    external: true
     name: lab_1_lan
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+          gateway: 172.20.0.1

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <arpa/inet.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/select.h>
@@ -27,12 +28,11 @@ constexpr const char* PEER_MSG = "PEER";
 constexpr int PEER_MSG_LEN = 4;
 constexpr int SELECT_TIMEOUT_US = 100000; //100 миллисекунд
 
-extern std::atomic<bool> run;
-
 struct Config {
     std::string group;
     uint16_t port;
     int family;
+    std::string iface;
 };
 
 struct Sockets {
