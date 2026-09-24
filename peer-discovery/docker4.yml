@@ -1,0 +1,19 @@
+services:
+  peer-a4:
+    build: .
+    command: ["239.0.0.1"]
+    networks:
+      lan:
+        ipv4_address: 172.20.0.10
+
+  peer-b4:
+    build: .
+    command: ["239.0.0.1"]
+    networks:
+      lan:
+        ipv4_address: 172.20.0.20
+
+networks:
+  lan:
+    external: true
+    name: lab_1_lan

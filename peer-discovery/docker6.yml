@@ -1,0 +1,19 @@
+services:
+  peer-a6:
+    build: .
+    command: ["ff05::1"]
+    networks:
+      lan:
+        ipv6_address: fd00:20::10
+
+  peer-b6:
+    build: .
+    command: ["ff05::1"]
+    networks:
+      lan:
+        ipv6_address: fd00:20::20
+
+networks:
+  lan:
+    external: true
+    name: lab_1_lan
