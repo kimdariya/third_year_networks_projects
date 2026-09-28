@@ -1,6 +1,9 @@
 #pragma once
 
 #include <arpa/inet.h>
+#include <sys/ioctl.h>
+#include <ifaddrs.h>
+#include <set>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <sys/socket.h>

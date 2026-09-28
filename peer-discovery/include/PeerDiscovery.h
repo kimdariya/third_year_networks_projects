@@ -15,10 +15,12 @@ private:
     std::thread receiver_;
     uint16_t self_port_ = 0;
     std::atomic<bool> run_{true};
+    std::set<std::string> local_ips_;
     
     static PeerDiscovery* instance_;
 
     static void on_sig(int);
+    void load_local_ips();
     void setup_sockets();
     static void close_socks(Sockets& socks);
     void sender_loop();

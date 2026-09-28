@@ -12,7 +12,7 @@ bool parse_args(int argc, char** argv, Config& cfg) {
     if (argc > 2) {
         char* end = nullptr;
         long p = std::strtol(argv[2], &end, 10);
-        if (end == argv[2] || *end == '\0' || p <= 0 || p > 65535) {
+        if (end == argv[2] || *end != '\0' || p <= 0 || p > 65535) {
             std::cerr << "Bad port: " << argv[2] << "\n";
             return false;
         }
@@ -40,16 +40,9 @@ bool parse_args(int argc, char** argv, Config& cfg) {
     }
 
     cfg.iface = (argc > 3) ? argv[3] : "";
-
-    if (!cfg.iface.empty()) {
-        if (cfg.family == AF_INET) {
-            std::cerr << "Warning: interface is ignored for IPv4\n";
-            cfg.iface.clear();
-        } else if (if_nametoindex(cfg.iface.c_str()) == 0) {
-            std::cerr << "Bad interface: " << cfg.iface << "\n";
-            return false;
-        }
+    if (!cfg.iface.empty() && if_nametoindex(cfg.iface.c_str()) == 0) {
+        std::cerr << "Bad interface: " << cfg.iface << "\n";
+        return false;
     }
-
     return true;
 }

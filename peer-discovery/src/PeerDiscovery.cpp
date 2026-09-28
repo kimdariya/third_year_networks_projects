@@ -33,8 +33,11 @@ int PeerDiscovery::running() {
     std::signal(SIGTERM, on_sig);
 
     setup_sockets();
+
     if (socks_.recv_sock < 0 || socks_.send_sock < 0)
         return 1;
+
+    load_local_ips();
 
     sender_ = std::thread(&PeerDiscovery::sender_loop,   this);
     receiver_ = std::thread(&PeerDiscovery::receiver_loop, this);
@@ -47,6 +50,21 @@ int PeerDiscovery::running() {
 void PeerDiscovery::close_socks(Sockets& s) {
     if (s.recv_sock >= 0) { close(s.recv_sock); s.recv_sock = -1; }
     if (s.send_sock >= 0) { close(s.send_sock); s.send_sock = -1; }
+}
+
+static bool iface_ipv4(const std::string& name, in_addr& out) {
+    ifaddrs* list = nullptr;
+    if (getifaddrs(&list) < 0) return false;
+    bool found = false;
+    for (ifaddrs* p = list; p; p = p->ifa_next) {
+        if (p->ifa_addr && p->ifa_addr->sa_family == AF_INET && name == p->ifa_name) {
+            out = reinterpret_cast<sockaddr_in*>(p->ifa_addr)->sin_addr;
+            found = true;
+            break;
+        }
+    }
+    freeifaddrs(list);
+    return found;
 }
 
 void PeerDiscovery::setup_sockets() {
@@ -67,7 +85,15 @@ void PeerDiscovery::setup_sockets() {
         perror("SO_REUSEPORT");
     }
 
-    if (cfg_.family == AF_INET) {
+        if (cfg_.family == AF_INET) {
+        in_addr ifaddr{};
+        ifaddr.s_addr = htonl(INADDR_ANY);
+        if (!cfg_.iface.empty() && !iface_ipv4(cfg_.iface, ifaddr)) {
+            std::cerr << "No IPv4 address on " << cfg_.iface << "\n";
+            close_socks(socks_);
+            return;
+        }
+
         sockaddr_in ra{};
         ra.sin_family      = AF_INET;
         ra.sin_addr.s_addr = INADDR_ANY;
@@ -80,7 +106,7 @@ void PeerDiscovery::setup_sockets() {
 
         ip_mreq m{};
         inet_pton(AF_INET, cfg_.group.c_str(), &m.imr_multiaddr);
-        m.imr_interface.s_addr = INADDR_ANY;
+        m.imr_interface = ifaddr;
         if (setsockopt(socks_.recv_sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &m, sizeof(m)) < 0) {
             perror("join4");
             close_socks(socks_);
@@ -95,6 +121,11 @@ void PeerDiscovery::setup_sockets() {
             perror("bind send");
             close_socks(socks_);
             return;
+        }
+
+        if (!cfg_.iface.empty()) {
+            if (setsockopt(socks_.send_sock, IPPROTO_IP, IP_MULTICAST_IF, &ifaddr, sizeof(ifaddr)) < 0)
+                perror("IP_MULTICAST_IF");
         }
 
         sockaddr_in self{};
@@ -249,7 +280,7 @@ void PeerDiscovery::handle_packet(const char* buf, ssize_t n, const sockaddr_sto
         return;
     }
 
-    if (port == self_port_) return;
+    if (port == self_port_ && local_ips_.count(ip)) return;
 
     std::string key = std::string(ip) + ":" + std::to_string(port);
     bool is_new = (peers_.find(key) == peers_.end());
@@ -281,4 +312,20 @@ bool PeerDiscovery::check_timeouts() {
         }
     }
     return changed;
+}
+
+void PeerDiscovery::load_local_ips() {
+    ifaddrs* list = nullptr;
+    if (getifaddrs(&list) < 0) { perror("getifaddrs"); return; }
+    for (ifaddrs* p = list; p; p = p->ifa_next) {
+        if (!p->ifa_addr) continue;
+        char ip[INET6_ADDRSTRLEN]{};
+        if (p->ifa_addr->sa_family == AF_INET)
+            inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(p->ifa_addr)->sin_addr, ip, sizeof(ip));
+        else if (p->ifa_addr->sa_family == AF_INET6)
+            inet_ntop(AF_INET6, &reinterpret_cast<sockaddr_in6*>(p->ifa_addr)->sin6_addr, ip, sizeof(ip));
+        else continue;
+        local_ips_.insert(ip);
+    }
+    freeifaddrs(list);
 }
