@@ -1,3 +1,5 @@
+name: lab_1_v4
+
 services:
   peer-a4:
     build: .
@@ -15,7 +17,7 @@ services:
 
 networks:
   lan:
-    name: lab_1_lan
+    name: lab_1_lan4
     driver: bridge
     ipam:
       config:

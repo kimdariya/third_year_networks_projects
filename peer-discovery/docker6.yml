@@ -1,3 +1,5 @@
+name: lab_1_v6
+
 services:
   peer-a6:
     build: .
@@ -15,7 +17,7 @@ services:
 
 networks:
   lan:
-    name: lab_1_lan
+    name: lab_1_lan6
     driver: bridge
     enable_ipv6: true
     ipam:
