@@ -1,0 +1,40 @@
+services:
+  server:
+    build: .
+    image: tcp-ft
+    container_name: tcp-server
+    command: ./server 4449 /app/uploads
+    ports:
+      - "4449:4449"
+    volumes:
+      - ./uploads:/app/uploads
+
+  client-big:
+    image: tcp-ft
+    container_name: tcp-client-big
+    depends_on:
+      - server
+    #первый способ уменьшить скорость
+    #cap_add:
+    #  - NET_ADMIN
+    #command: sh -c "tc qdisc add dev eth0 root netem rate 30mbit && sleep 2 && ./client /data/big.bin server 4449"
+    #второй способ уменьшить скорость
+    cpus: 0.03
+    command: sh -c "sleep 2 && ./client /data/big.bin server 4449"
+    volumes:
+      - ./files/big.bin:/data/big.bin:ro
+
+  client-small:
+    image: tcp-ft
+    container_name: tcp-client-small
+    depends_on:
+      - server
+    #первый способ уменьшить скорость
+    #cap_add:
+    #  - NET_ADMIN
+    #command: sh -c "tc qdisc add dev eth0 root netem rate 30mbit && sleep 4 && ./client /data/test.pdf server 4449"
+    #второй способ уменьшить скорость
+    cpus: 0.03
+    command: sh -c "sleep 4 && ./client /data/test.pdf server 4449"
+    volumes:
+      - ./files/test.pdf:/data/test.pdf:ro

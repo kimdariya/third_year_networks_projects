@@ -1,0 +1,12 @@
+build/
+uploads/
+.git/
+.gitignore
+.vscode/
+.idea/
+*.o
+*.a
+README.md
+test.pdf
+big.bin
+image.jpeg
