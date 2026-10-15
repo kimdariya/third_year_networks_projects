@@ -10,7 +10,7 @@ struct FileHeader {
     std::uint64_t size = 0;
 
     static constexpr std::uint64_t kMaxNameBytes = 4096;
-    static constexpr std::uint64_t kMaxFileSize  = 1ULL << 40; // 1 TiB
+    static constexpr std::uint64_t kMaxFileSize  = 1ULL << 40;
 };
 
 namespace protocol {

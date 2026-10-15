@@ -10,8 +10,8 @@ public:
     explicit Socket(int fd) noexcept;
     ~Socket();
 
-    Socket(Socket&&) noexcept;//move-конструктор
-    Socket& operator=(Socket&&) noexcept;//оператор перемещающего присваивания
+    Socket(Socket&&) noexcept;
+    Socket& operator=(Socket&&) noexcept;
     Socket(const Socket&) = delete;
     Socket& operator=(const Socket&) = delete;
 

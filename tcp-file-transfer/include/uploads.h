@@ -21,7 +21,7 @@ public:
 private:
     Socket fd_;
     std::filesystem::path path_;
-    bool done_ = false; // завершилась ли загрузка файла
+    bool done_ = false;
 };
 
 class Uploads {

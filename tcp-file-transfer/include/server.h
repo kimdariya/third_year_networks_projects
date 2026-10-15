@@ -45,6 +45,6 @@ private:
     std::mutex mu_;
     std::unordered_map<int, ClientEntry> clients_;
 
-    std::condition_variable idle_cv_;//условная переменная. точка ожидания, просыпается от какого-то события
+    std::condition_variable idle_cv_;
     std::size_t active_ = 0;
 };

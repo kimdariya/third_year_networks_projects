@@ -17,9 +17,9 @@
 #include <vector>
 
 namespace {
-    constexpr std::size_t kChunk = 64 * 1024;//~44 MSS (mms = 1460)
+    constexpr std::size_t kChunk = 64 * 1024;
     constexpr auto kReportPeriod = std::chrono::seconds(3);
-    constexpr auto  kTick = std::chrono::milliseconds(100);//чтобы реакция на stop() была быстрее 3 секунд
+    constexpr auto  kTick = std::chrono::milliseconds(100);
     constexpr int kRecvTimeoutSec = 60;
     constexpr std::size_t kMaxClients = 16;
 
@@ -48,7 +48,7 @@ Server::~Server() {
 void Server::stop() noexcept {
     stop_.store(true);
     int fd = listener_.get();
-    if (fd >= 0) ::shutdown(fd, SHUT_RDWR);//для accept()
+    if (fd >= 0) ::shutdown(fd, SHUT_RDWR);
 }
 
 void Server::run() {
@@ -101,13 +101,13 @@ void Server::handle_client(Socket sock, std::string peer) {
     timeval tv{kRecvTimeoutSec, 0};
     ::setsockopt(sock.get(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-    auto meter = std::make_shared<SpeedMeter>(); //для потоков handle_client и reporter_loop
+    auto meter = std::make_shared<SpeedMeter>();
     {
         std::lock_guard<std::mutex> lk(mu_);
         clients_.emplace(sock.get(), ClientEntry{peer, meter, false});
     }
 
-    bool ok = false;//прошла ли успешно обработка клиентов
+    bool ok = false;
     try {
         FileHeader h = protocol::recv_header(sock);
 

@@ -71,7 +71,7 @@ UploadFile Uploads::open_for_write(const std::string& client_name) const {
 
     for (int i = 0; i < 1000; ++i) {
         fs::path p = root_ / (i == 0 ? base.string() : stem + "_" + std::to_string(i) + ext);
-        int fd = ::open(p.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);//открывать только для записи,если нет, то создаем, инчае ошибка, не идем по симлинкам,не наследовать fd в потомках при exec
+        int fd = ::open(p.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
         if (fd >= 0) {
             return UploadFile(Socket(fd), std::move(p));
         }

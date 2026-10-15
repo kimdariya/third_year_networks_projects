@@ -38,7 +38,7 @@ void Socket::close() noexcept {
 void Socket::send_all(const void* data, std::size_t n) const {
     const auto* p = static_cast<const std::uint8_t*>(data);
     while (n > 0) {
-        ssize_t w = ::send(fd_, p, n, MSG_NOSIGNAL);//С MSG_NOSIGNAL сервер не падает
+        ssize_t w = ::send(fd_, p, n, MSG_NOSIGNAL);
         if (w < 0) {
             if (errno == EINTR) continue;
             throw std::system_error(errno, std::generic_category(), "send");
@@ -92,7 +92,7 @@ Socket make_listener(std::uint16_t port) {
 }
 
 Socket make_connection(const std::string& host, std::uint16_t port) {
-    addrinfo hints{};//фильтруем только ipv4 tcp
+    addrinfo hints{};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
