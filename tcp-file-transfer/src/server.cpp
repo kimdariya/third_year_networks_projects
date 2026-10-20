@@ -28,6 +28,22 @@ namespace {
         inet_ntop(AF_INET, &a.sin_addr, buf, sizeof(buf));
         return std::string(buf) + ":" + std::to_string(ntohs(a.sin_port));
     }
+
+    void reject_client(Socket sock) {
+        timeval tv{5, 0};
+        ::setsockopt(sock.get(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        ::setsockopt(sock.get(), SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        try {
+            FileHeader h = protocol::recv_header(sock);
+            protocol::send_ack(sock, false);
+            std::vector<std::uint8_t> sink(kChunk);
+            for (std::uint64_t left = h.size; left > 0;) {
+                auto n = static_cast<std::size_t>(std::min<std::uint64_t>(kChunk, left));
+                sock.recv_all(sink.data(), n);
+                left -= n;
+            }
+        } catch (...) {}
+    }
 }
 
 Server::Server(std::uint16_t port, std::string uploadsRoot)
@@ -59,9 +75,10 @@ void Server::run() {
         socklen_t len = sizeof(peer);
         int cfd = ::accept(listener_.get(),reinterpret_cast<sockaddr*>(&peer), &len);
         if (cfd < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR || errno == ECONNABORTED) continue;
             if (stop_.load()) break;
             std::fprintf(stderr, "[server] accept: %s\n", std::strerror(errno));
+            std::this_thread::sleep_for(kTick);
             continue;
         }
 
@@ -71,7 +88,10 @@ void Server::run() {
         {
             std::lock_guard<std::mutex> lk(mu_);
             if (active_ >= kMaxClients) {
-                std::fprintf(stderr, "[server] rejected %s: too many clients (%zu/%zu)\n",peerStr.c_str(), active_, kMaxClients);
+                std::fprintf(stderr, "[server] rejected %s: too many clients (%zu/%zu)\n", peerStr.c_str(), active_, kMaxClients);
+                try {
+                    std::thread([s = std::move(sock)]() mutable { reject_client(std::move(s)); }).detach();
+                } catch (...) {}
                 continue;
             }
             ++active_;
@@ -100,6 +120,7 @@ void Server::run() {
 void Server::handle_client(Socket sock, std::string peer) {
     timeval tv{kRecvTimeoutSec, 0};
     ::setsockopt(sock.get(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    ::setsockopt(sock.get(), SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
     auto meter = std::make_shared<SpeedMeter>();
     {
@@ -144,10 +165,11 @@ void Server::handle_client(Socket sock, std::string peer) {
         auto it = clients_.find(sock.get());
         if (it != clients_.end()) {
             if (!it->second.reported) {
-                std::fprintf(stderr, "[server][%s] final: instant=%s avg=%s\n",
+                std::fprintf(stderr, "[server][%s] final: instant=%s avg=%s total=%s\n",
                     peer.c_str(),
                     human_rate(meter->instant()).c_str(),
-                    human_rate(static_cast<std::uint64_t>(meter->average())).c_str());
+                    human_rate(static_cast<std::uint64_t>(meter->average())).c_str(),
+                    human_size(meter->total()).c_str());
             }
             clients_.erase(it);
         }
@@ -169,7 +191,7 @@ void Server::reporter_loop() {
                 entry.second.peer.c_str(),
                 human_rate(entry.second.meter->instant()).c_str(),
                 human_rate(static_cast<std::uint64_t>(entry.second.meter->average())).c_str(),
-                human_rate(entry.second.meter->total()).c_str());
+                human_size(entry.second.meter->total()).c_str());
             entry.second.reported = true;
         }
     }

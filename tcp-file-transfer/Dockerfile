@@ -25,4 +25,4 @@ COPY --from=builder /src/build/client /app/client
 
 RUN mkdir -p /app/uploads
 EXPOSE 4449
-CMD ["./server", "4449", "/app/uploads"]
+CMD ["./server", "4449"]

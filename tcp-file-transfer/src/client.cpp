@@ -2,7 +2,8 @@
 #include "../include/protocol.h"
 #include "../include/socket.h"
 #include "../include/speed_meter.h"
-
+#include <sys/socket.h>
+#include <sys/time.h>
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
@@ -15,6 +16,7 @@ namespace fs = std::filesystem;
 
 namespace {
     constexpr std::size_t kChunk = 64 * 1024;
+    constexpr int kIoTimeoutSec = 60;
 }
 
 Client::Client(std::string host, std::uint16_t port, std::string path)
@@ -37,8 +39,12 @@ bool Client::run() {
     h.size = size;
 
     Socket sock = make_connection(host_, port_);
+    timeval tv{kIoTimeoutSec, 0};
+    ::setsockopt(sock.get(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    ::setsockopt(sock.get(), SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
     bool ok = false;
+    bool ackStage = false;
     std::uint64_t sent = 0;
     try {
         protocol::send_header(sock, h);
@@ -54,9 +60,13 @@ bool Client::run() {
             sock.send_all(buf.data(), static_cast<std::size_t>(got));
             sent += static_cast<std::uint64_t>(got);
         }
+        ackStage = true;
         ok = protocol::recv_ack(sock);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "[client] %s\n", e.what());
+        if (!ackStage) {
+            try { if (!protocol::recv_ack(sock)) std::fprintf(stderr, "[client] server reported failure\n"); } catch (...) {}
+        }
     }
 
     std::fprintf(stderr, "[client] %s: %s (%s)\n",

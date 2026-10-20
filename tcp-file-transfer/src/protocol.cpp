@@ -19,7 +19,24 @@ namespace {
     constexpr std::uint8_t kAckOk   = 0x01;
     constexpr std::uint8_t kAckFail = 0x00;
 
+
     constexpr int kU64Bytes = 8;
+
+
+    constexpr std::uint8_t kTwoBytePayloadMask = 0x1F;
+    constexpr std::uint8_t kThreeBytePayloadMask = 0x0F;
+    constexpr std::uint8_t kFourBytePayloadMask = 0x07;
+
+    constexpr std::uint8_t kContinuationPayloadMask = 0x3F;
+    constexpr unsigned kContinuationShift = 0x6;
+
+    constexpr std::uint32_t kMinCodePoint1Byte = 0x0;
+    constexpr std::uint32_t kMinCodePoint2Byte = 0x80;
+    constexpr std::uint32_t kMinCodePoint3Byte = 0x800;
+    constexpr std::uint32_t kMinCodePoint4Byte = 0x10000;
+    constexpr std::uint32_t kMaxCodePoint = 0x10FFFF;
+    constexpr std::uint32_t kSurrogateMin = 0xD800;
+    constexpr std::uint32_t kSurrogateMax = 0xDFFF;
 
     void send_u64(const Socket& s, std::uint64_t v) {
         std::uint8_t b[kU64Bytes];
@@ -62,15 +79,19 @@ namespace protocol {
             const auto* end = p + h.name.size();
             while (p < end) {
                 unsigned char c = *p;
-                int extra;
+                int extra; std::uint32_t cp;
                 if (c < kAsciiMax) {
                     extra = 0;
-                }else if ((c & kTwoByteLeadMask) == kTwoByteLeadBits){
+                    cp = c;
+                }else if ((c & kTwoByteLeadMask) == kTwoByteLeadBits) {
                     extra = 1;
-                }else if ((c & kThreeByteLeadMask) == kThreeByteLeadBits){
+                    cp = c & kTwoBytePayloadMask;
+                }else if ((c & kThreeByteLeadMask) == kThreeByteLeadBits) {
                     extra = 2;
-                }else if ((c & kFourByteLeadMask) == kFourByteLeadBits){
+                    cp = c & kThreeBytePayloadMask;
+                }else if ((c & kFourByteLeadMask) == kFourByteLeadBits) {
                     extra = 3;
+                    cp = c & kFourBytePayloadMask;
                 }else {
                     throw std::invalid_argument("file name is not valid UTF-8");
                 }
@@ -79,10 +100,17 @@ namespace protocol {
                     throw std::invalid_argument("file name is not valid UTF-8");
                 }
 
-                for (int i = 1; i <= extra; ++i)
+                for (int i = 1; i <= extra; ++i) {
                     if ((p[i] & kContinuationMask) != kContinuationBits) {
                         throw std::invalid_argument("file name is not valid UTF-8");
                     }
+                    cp = (cp << kContinuationShift) | (p[i] & kContinuationPayloadMask);
+                }
+
+                static const std::uint32_t kMin[] = {kMinCodePoint1Byte, kMinCodePoint2Byte,kMinCodePoint3Byte, kMinCodePoint4Byte };
+                if (cp < kMin[extra] || cp > kMaxCodePoint || (cp >= kSurrogateMin && cp <=kSurrogateMax)) {
+                    throw std::invalid_argument("file name is not valid UTF-8");
+                }
                 p += extra + 1;
             }
         }

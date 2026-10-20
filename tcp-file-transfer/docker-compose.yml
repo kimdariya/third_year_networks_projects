@@ -3,7 +3,7 @@ services:
     build: .
     image: tcp-ft
     container_name: tcp-server
-    command: ./server 4449 /app/uploads
+    command: ./server 4449 
     ports:
       - "4449:4449"
     volumes:
