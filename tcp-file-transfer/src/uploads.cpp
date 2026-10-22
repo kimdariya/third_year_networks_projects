@@ -12,8 +12,8 @@ namespace fs = std::filesystem;
 
 namespace {
     constexpr int kNAME_MAX = 255;
-    constexpr std::uint8_t kContinuationMask = 0xC0;
-    constexpr std::uint8_t kContinuationBits = 0x80;
+    constexpr std::uint8_t kContinuationMask = 0xC0;// 1100 0000
+    constexpr std::uint8_t kContinuationBits = 0x80;// 1000 0000
 
     std::string fit_name(std::string stem, std::string ext, const std::string& suffix, std::size_t maxName) {
         if (ext.size() + suffix.size() >= maxName) {

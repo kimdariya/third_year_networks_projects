@@ -21,6 +21,7 @@ namespace {
     constexpr auto kReportPeriod = std::chrono::seconds(3);
     constexpr auto  kTick = std::chrono::milliseconds(100);
     constexpr int kRecvTimeoutSec = 60;
+    constexpr int kRejTimeoutSec = 5;
     constexpr std::size_t kMaxClients = 16;
 
     std::string peer_to_string(const sockaddr_in& a) {
@@ -30,18 +31,18 @@ namespace {
     }
 
     void reject_client(Socket sock) {
-        timeval tv{5, 0};
+        timeval tv{kRejTimeoutSec, 0};
         ::setsockopt(sock.get(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         ::setsockopt(sock.get(), SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
         try {
             FileHeader h = protocol::recv_header(sock);
-            protocol::send_ack(sock, false);
             std::vector<std::uint8_t> sink(kChunk);
             for (std::uint64_t left = h.size; left > 0;) {
                 auto n = static_cast<std::size_t>(std::min<std::uint64_t>(kChunk, left));
                 sock.recv_all(sink.data(), n);
                 left -= n;
             }
+            protocol::send_ack(sock, protocol::Ack::Reject);
         } catch (...) {}
     }
 }
@@ -90,7 +91,9 @@ void Server::run() {
             if (active_ >= kMaxClients) {
                 std::fprintf(stderr, "[server] rejected %s: too many clients (%zu/%zu)\n", peerStr.c_str(), active_, kMaxClients);
                 try {
-                    std::thread([s = std::move(sock)]() mutable { reject_client(std::move(s)); }).detach();
+                    std::thread([s = std::move(sock)]() mutable {
+                        reject_client(std::move(s));
+                    }).detach();
                 } catch (...) {}
                 continue;
             }
@@ -158,7 +161,7 @@ void Server::handle_client(Socket sock, std::string peer) {
         std::fprintf(stderr, "[server] %s: %s\n", peer.c_str(), e.what());
     }
 
-    try { protocol::send_ack(sock, ok); } catch (...) {}
+    try { protocol::send_ack(sock, ok ? protocol::Ack::Ok : protocol::Ack::Fail); } catch (...) {}
 
     {
         std::lock_guard<std::mutex> lk(mu_);

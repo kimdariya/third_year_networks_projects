@@ -15,6 +15,7 @@
 namespace fs = std::filesystem;
 
 namespace {
+    bool rejected = false;
     constexpr std::size_t kChunk = 64 * 1024;
     constexpr int kIoTimeoutSec = 60;
 }
@@ -61,16 +62,30 @@ bool Client::run() {
             sent += static_cast<std::uint64_t>(got);
         }
         ackStage = true;
-        ok = protocol::recv_ack(sock);
+        switch (protocol::recv_ack(sock)) {
+            case protocol::Ack::Ok:
+                ok = true;
+                break;
+            case protocol::Ack::Reject:
+                std::fprintf(stderr, "[client] %s: REJECTED by server\n", path_.c_str());
+                rejected = true;
+                ok = true;
+                break;
+            case protocol::Ack::Fail:
+                std::fprintf(stderr, "[client] %s: server reported failure\n", path_.c_str());
+                break;
+        }
     } catch (const std::exception& e) {
         std::fprintf(stderr, "[client] %s\n", e.what());
         if (!ackStage) {
-            try { if (!protocol::recv_ack(sock)) std::fprintf(stderr, "[client] server reported failure\n"); } catch (...) {}
+            try {
+                if (protocol::recv_ack(sock) == protocol::Ack::Fail)
+                    std::fprintf(stderr, "[client] server reported failure\n");
+            } catch (...) {}
         }
     }
 
-    std::fprintf(stderr, "[client] %s: %s (%s)\n",
-             path_.c_str(), ok ? "OK" : "FAILED",
-             human_size(sent).c_str());
+    const char* status = rejected ? "REJECTED" : (ok ? "OK" : "FAILED");
+    std::fprintf(stderr, "[client] %s: %s (%s)\n", path_.c_str(), status, human_size(sent).c_str());
     return ok;
 }

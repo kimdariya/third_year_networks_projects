@@ -15,26 +15,23 @@ namespace {
     constexpr std::uint8_t kContinuationMask = 0xC0;
     constexpr std::uint8_t kContinuationBits = 0x80;
 
-    // ack
-    constexpr std::uint8_t kAckOk   = 0x01;
-    constexpr std::uint8_t kAckFail = 0x00;
-
 
     constexpr int kU64Bytes = 8;
 
 
-    constexpr std::uint8_t kTwoBytePayloadMask = 0x1F;
-    constexpr std::uint8_t kThreeBytePayloadMask = 0x0F;
-    constexpr std::uint8_t kFourBytePayloadMask = 0x07;
+    constexpr std::uint8_t kTwoBytePayloadMask = 0x1F;//0001 1111
+    constexpr std::uint8_t kThreeBytePayloadMask = 0x0F;//0000 1111
+    constexpr std::uint8_t kFourBytePayloadMask = 0x07;//0000 0111
 
-    constexpr std::uint8_t kContinuationPayloadMask = 0x3F;
-    constexpr unsigned kContinuationShift = 0x6;
+    constexpr std::uint8_t kContinuationPayloadMask = 0x3F;//0011 1111
+    constexpr unsigned kContinuationShift = 0x6;//сдвиг на 6
 
     constexpr std::uint32_t kMinCodePoint1Byte = 0x0;
-    constexpr std::uint32_t kMinCodePoint2Byte = 0x80;
-    constexpr std::uint32_t kMinCodePoint3Byte = 0x800;
-    constexpr std::uint32_t kMinCodePoint4Byte = 0x10000;
-    constexpr std::uint32_t kMaxCodePoint = 0x10FFFF;
+    constexpr std::uint32_t kMinCodePoint2Byte = 0x80;//128
+    constexpr std::uint32_t kMinCodePoint3Byte = 0x800;//2048
+    constexpr std::uint32_t kMinCodePoint4Byte = 0x10000;//65536
+
+    constexpr std::uint32_t kMaxCodePoint = 0x10FFFF;//максимум unicode
     constexpr std::uint32_t kSurrogateMin = 0xD800;
     constexpr std::uint32_t kSurrogateMax = 0xDFFF;
 
@@ -79,7 +76,7 @@ namespace protocol {
             const auto* end = p + h.name.size();
             while (p < end) {
                 unsigned char c = *p;
-                int extra; std::uint32_t cp;
+                int extra; std::uint32_t cp;//номер символа в юникод
                 if (c < kAsciiMax) {
                     extra = 0;
                     cp = c;
@@ -107,7 +104,7 @@ namespace protocol {
                     cp = (cp << kContinuationShift) | (p[i] & kContinuationPayloadMask);
                 }
 
-                static const std::uint32_t kMin[] = {kMinCodePoint1Byte, kMinCodePoint2Byte,kMinCodePoint3Byte, kMinCodePoint4Byte };
+                static constexpr std::uint32_t kMin[] = {kMinCodePoint1Byte, kMinCodePoint2Byte,kMinCodePoint3Byte, kMinCodePoint4Byte };
                 if (cp < kMin[extra] || cp > kMaxCodePoint || (cp >= kSurrogateMin && cp <=kSurrogateMax)) {
                     throw std::invalid_argument("file name is not valid UTF-8");
                 }
@@ -140,15 +137,19 @@ namespace protocol {
         return h;
     }
 
-    void send_ack(const Socket& s, bool ok) {
-        std::uint8_t b = ok ? kAckOk : kAckFail;
+    void send_ack(const Socket& s, Ack a) {
+        std::uint8_t b = static_cast<std::uint8_t>(a);
         s.send_all(&b, 1);
     }
 
-    bool recv_ack(const Socket& s) {
+    Ack recv_ack(const Socket& s) {
         std::uint8_t b = 0;
         s.recv_all(&b, 1);
-        return b == kAckOk;
+        switch (b) {
+            case 0x01: return Ack::Ok;
+            case 0x02: return Ack::Reject;
+            default:   return Ack::Fail;
+        }
     }
 
 }
