@@ -1,4 +1,5 @@
 #include "../include/Models.hpp"
+#include <stdexcept>
 
 static std::string str(const Json& j, const char* key) {
     auto it = j.find(key);
@@ -13,11 +14,28 @@ static std::string str(const Json& j, const char* key) {
 
 namespace parse {
 
-    Film film(const Json& j) {
-        Film f;
-        if (!j.is_object()) {
-            return f;
+    void checkWikiError(const Json& j) {
+        if (j.is_object() && j.contains("error")) {
+            const auto& err = j["error"];
+            std::string code = err.value("code", "unknown");
+            std::string info = err.value("info", "Wikipedia API error");
+            throw std::runtime_error("Wikipedia API error [" + code + "]: " + info);
         }
+
+        if (j.is_object() && j.contains("errors") && j["errors"].is_array() && !j["errors"].empty()) {
+            const auto& err = j["errors"][0];
+            std::string code = err.value("code", "unknown");
+            std::string info = err.value("info", err.value("text", "Wikipedia API error"));
+            throw std::runtime_error("Wikipedia API error [" + code + "]: " + info);
+        }
+    }
+
+    bool film(const Json& j, Film& out) {
+        if (!j.is_object()) {
+            return false;
+        }
+
+        Film f;
         f.id = str(j, "id");
         f.title = str(j, "title");
         f.original_title = str(j, "original_title");
@@ -28,7 +46,12 @@ namespace parse {
         f.release_date = str(j, "release_date");
         f.running_time = str(j, "running_time");
         f.rt_score = str(j, "rt_score");
-        return f;
+
+        if (f.id.empty() || f.title.empty() || f.release_date.empty() || f.rt_score.empty()) {
+            return false;
+        }
+        out = std::move(f);
+        return true;
     }
 
     std::vector<Film> films(const Json& j) {
@@ -37,12 +60,16 @@ namespace parse {
             return out;
         }
         for (const auto& item : j) {
-            out.push_back(film(item));
+            Film f;
+            if (film(item, f)) {
+                out.push_back(std::move(f));
+            }
         }
         return out;
     }
 
     std::string pageImage(const Json& j) {
+        checkWikiError(j);
         if (!j.is_object() || !j.contains("query") || !j["query"].contains("pages")) return {};
         for (auto& [id, page] : j["query"]["pages"].items()) {
             if (page.contains("original") && page["original"].contains("source") &&
@@ -54,6 +81,7 @@ namespace parse {
     }
 
     std::string extract(const Json& j) {
+        checkWikiError(j);
         if (!j.is_object() || !j.contains("query") || !j["query"].contains("pages")) {
             return {};
         }

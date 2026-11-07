@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <condition_variable>
 #include <exception>
 #include <functional>
@@ -11,6 +12,15 @@
 
 namespace fut {
 
+    class CancellationToken {
+    public:
+        CancellationToken() : cancelled_(std::make_shared<std::atomic<bool>>(false)) {}
+        void cancel() { cancelled_->store(true, std::memory_order_release); }
+        bool isCancelled() const { return cancelled_->load(std::memory_order_acquire); }
+    private:
+        std::shared_ptr<std::atomic<bool>> cancelled_;
+    };
+
     namespace detail {
         template <class T>
         struct State {
@@ -20,6 +30,7 @@ namespace fut {
             std::exception_ptr error;
             bool done = false;
             std::vector<std::function<void()>> callbacks;
+            CancellationToken token;
         };
     }
 
@@ -32,11 +43,14 @@ namespace fut {
         T get() const {
             std::unique_lock<std::mutex> lk(st_->m);
             st_->cv.wait(lk, [&] { return st_->done; });
-            lk.unlock();
-            return value();
+            if (st_->error) {
+                std::rethrow_exception(st_->error);
+            }
+            return *st_->value;
         }
 
         T value() const {
+            std::lock_guard<std::mutex> lk(st_->m);
             if (st_->error) {
                 std::rethrow_exception(st_->error);
             }
@@ -54,6 +68,10 @@ namespace fut {
             cb();
         }
 
+        CancellationToken token() const { return st_->token; }
+
+        void cancel() const { st_->token.cancel(); }
+
     private:
         std::shared_ptr<detail::State<T>> st_;
     };
@@ -62,15 +80,24 @@ namespace fut {
     class Promise {
     public:
         Promise() : st_(std::make_shared<detail::State<T>>()) {}
+        explicit Promise(CancellationToken token) : st_(std::make_shared<detail::State<T>>()) {
+            st_->token = std::move(token);
+        }
+
         Future<T> future() const {
             return Future<T>(st_);
         }
+
+        CancellationToken token() const { return st_->token; }
+
         void setValue(T v) const {
             complete([&] { st_->value.emplace(std::move(v)); });
         }
         void setError(std::exception_ptr e) const {
             complete([&] { st_->error = e; });
         }
+
+        bool isCancelled() const { return st_->token.isCancelled(); }
 
     private:
         template <class F>
@@ -106,15 +133,23 @@ namespace fut {
         using R = std::invoke_result_t<F&, T>;
         if constexpr (is_future<R>::value) {
             using U = typename R::value_type;
-            Promise<U> p;
+            Promise<U> p(prev.token());
             auto out = p.future();
             prev.subscribe([prev, p, f]() mutable {
+                if (prev.token().isCancelled()) {
+                    p.setError(std::make_exception_ptr(std::runtime_error("operation cancelled")));
+                    return;
+                }
                 try {
                     R inner = f(prev.value());
                     inner.subscribe([inner, p] {
                         try {
+                            if (p.isCancelled()) {
+                                p.setError(std::make_exception_ptr(std::runtime_error("operation cancelled")));
+                                return;
+                            }
                             p.setValue(inner.value());
-                        }catch (...) {
+                        } catch (...) {
                             p.setError(std::current_exception());
                         }
                     });
@@ -124,12 +159,16 @@ namespace fut {
             });
             return out;
         } else {
-            Promise<R> p;
+            Promise<R> p(prev.token());
             auto out = p.future();
             prev.subscribe([prev, p, f]() mutable {
+                if (prev.token().isCancelled()) {
+                    p.setError(std::make_exception_ptr(std::runtime_error("operation cancelled")));
+                    return;
+                }
                 try {
                     p.setValue(f(prev.value()));
-                }catch (...) {
+                } catch (...) {
                     p.setError(std::current_exception());
                 }
             });
@@ -139,15 +178,19 @@ namespace fut {
 
     template <class T, class F>
     Future<T> recover(Future<T> prev, F handler) {
-        Promise<T> p;
+        Promise<T> p(prev.token());
         auto out = p.future();
         prev.subscribe([prev, p, handler]() mutable {
+            if (prev.token().isCancelled()) {
+                p.setError(std::make_exception_ptr(std::runtime_error("operation cancelled")));
+                return;
+            }
             try {
                 p.setValue(prev.value());
             } catch (const std::exception& e) {
                 try {
                     p.setValue(handler(e));
-                }catch (...) {
+                } catch (...) {
                     p.setError(std::current_exception());
                 }
             } catch (...) {

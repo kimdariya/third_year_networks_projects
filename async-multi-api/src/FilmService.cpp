@@ -3,20 +3,22 @@
 #include <cctype>
 #include <iostream>
 #include <utility>
+#include <unicode/unistr.h>
+#include <unicode/locid.h>
 
-static std::string toLower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
-        return std::tolower(c);
-    });
-    return s;
+std::string toLowerUnicode(const std::string& utf8) {
+    icu::UnicodeString u(utf8.c_str(), "UTF-8");
+    std::string out;
+    u.toLower(icu::Locale::getRoot()).toUTF8String(out);
+    return out;
 }
 
 fut::Future<std::vector<Film>> FilmService::searchFilms(const std::string& query) const {
-    return fut::then(ghibli_.allFilms(), [q = toLower(query)](std::vector<Film> all) {
+    return fut::then(ghibli_.allFilms(), [q = toLowerUnicode(query)](std::vector<Film> all) {
         std::vector<Film> out;
         for (auto& f : all) {
-            if (toLower(f.title).find(q) != std::string::npos ||
-                toLower(f.original_title_romanised).find(q) != std::string::npos) {
+            if (toLowerUnicode(f.title).find(q) != std::string::npos ||
+                toLowerUnicode(f.original_title_romanised).find(q) != std::string::npos) {
                 out.push_back(std::move(f));
             }
         }
@@ -31,7 +33,6 @@ fut::Future<FilmDetails> FilmService::loadFilmDetails(const Film& selected) cons
             return wiki_.pageImage(ruTitle);
         });
 
-    auto cardFut = ghibli_.filmById(selected.id);
     auto extractFut = wiki_.extract(selected.title);
 
     auto safeImage = fut::recover(std::move(imageFut), [](const std::exception& e) {
@@ -44,16 +45,13 @@ fut::Future<FilmDetails> FilmService::loadFilmDetails(const Film& selected) cons
         return std::string{};
     });
 
-
-    return fut::then(std::move(cardFut), [safeImage, safeExtract](Film card) {
-        return fut::then(safeImage, [card, safeExtract](std::string img) {
-            return fut::then(safeExtract, [card, img](std::string ext) {
-                FilmDetails d;
-                d.film = card;
-                d.imageUrl = img;
-                d.wikiExtract = ext;
-                return d;
-            });
+    return fut::then(std::move(safeImage), [selected, safeExtract](std::string img) {
+        return fut::then(safeExtract, [selected, img](std::string ext) {
+            FilmDetails d;
+            d.film = selected;
+            d.imageUrl = img;
+            d.wikiExtract = ext;
+            return d;
         });
     });
 }

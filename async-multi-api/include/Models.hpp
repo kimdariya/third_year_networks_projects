@@ -18,8 +18,9 @@ struct FilmDetails {
 };
 
 namespace parse {
-    Film film(const Json& j);
+    bool film(const Json& j, Film& out);
     std::vector<Film> films(const Json& j);
     std::string pageImage(const Json& j);
     std::string extract(const Json& j);
+    void checkWikiError(const Json& j);
 }
