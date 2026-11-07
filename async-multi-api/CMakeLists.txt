@@ -42,5 +42,15 @@ if(APPLE)
     endif()
 endif()
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SODIUM REQUIRED libsodium)
+target_include_directories(ghibli PRIVATE ${SODIUM_INCLUDE_DIRS})
+
+find_library(SODIUM_LIBRARY NAMES sodium PATHS ${SODIUM_LIBRARY_DIRS} /opt/homebrew/lib /usr/local/lib)
+if(NOT SODIUM_LIBRARY)
+    message(FATAL_ERROR "libsodium library not found!")
+endif()
+
+target_link_libraries(ghibli PRIVATE ${SODIUM_LIBRARY})
 find_package(ICU REQUIRED COMPONENTS uc)
 target_link_libraries(ghibli PRIVATE cpr::cpr nlohmann_json::nlohmann_json ICU::uc)
