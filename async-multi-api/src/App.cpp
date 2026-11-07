@@ -13,7 +13,6 @@ static std::string trim(const std::string& s) {
     return s.substr(b, s.find_last_not_of(ws) - b + 1);
 }
 
-// printDetails без изменений
 static void printDetails(const FilmDetails& d) {
     std::cout << "\n=== " << d.film.title
               << " (" << d.film.release_date << ") ===\n"
