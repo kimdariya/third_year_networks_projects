@@ -27,4 +27,20 @@ add_executable(ghibli
         src/App.cpp
         src/main.cpp)
 
-target_link_libraries(ghibli PRIVATE cpr::cpr nlohmann_json::nlohmann_json)
+if(APPLE)
+    find_program(BREW_EXECUTABLE brew
+            PATHS /opt/homebrew/bin /usr/local/bin
+            NO_DEFAULT_PATH)
+    if(BREW_EXECUTABLE)
+        execute_process(COMMAND ${BREW_EXECUTABLE} --prefix icu4c
+                OUTPUT_VARIABLE ICU_PREFIX
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET)
+        if(ICU_PREFIX)
+            list(APPEND CMAKE_PREFIX_PATH "${ICU_PREFIX}")
+        endif()
+    endif()
+endif()
+
+find_package(ICU REQUIRED COMPONENTS uc)
+target_link_libraries(ghibli PRIVATE cpr::cpr nlohmann_json::nlohmann_json ICU::uc)
