@@ -4,6 +4,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <sodium.h>
 
 static std::string trim(const std::string& s) {
     const char* ws = " \t\r\n";
@@ -137,8 +138,7 @@ int App::run(int argc, char** argv) const {
             int idx;
             if (cmd == "?") {
                 if (shown.empty()) { std::cout << "Nothing to pick.\n"; continue; }
-                static std::mt19937 rng{std::random_device{}()};
-                idx = static_cast<int>(rng() % shown.size());
+                idx = static_cast<int>(randombytes_uniform(static_cast<uint32_t>(shown.size())));
             } else {
                 idx = toInt(cmd);
             }
