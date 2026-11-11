@@ -122,8 +122,8 @@ namespace fut {
     template <class T> struct is_future<Future<T>> : std::true_type {};
 
     template <class T>
-    Future<std::decay_t<T>> ready(T&& v) {
-        Promise<std::decay_t<T>> p;
+    Future<std::decay_t<T>> ready(T&& v, CancellationToken token = {}) {
+        Promise<std::decay_t<T>> p(std::move(token));
         p.setValue(std::forward<T>(v));
         return p.future();
     }

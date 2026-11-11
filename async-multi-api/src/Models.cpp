@@ -76,6 +76,10 @@ namespace parse {
                 page["original"]["source"].is_string()) {
                 return page["original"]["source"].get<std::string>();
             }
+            if (page.contains("thumbnail") && page["thumbnail"].contains("source") &&
+                page["thumbnail"]["source"].is_string()) {
+                return page["thumbnail"]["source"].get<std::string>();
+            }
         }
         return {};
     }

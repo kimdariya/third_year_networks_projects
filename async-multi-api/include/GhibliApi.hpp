@@ -10,11 +10,9 @@
 
 class GhibliApi {
 public:
-    explicit GhibliApi(HttpClient client)
-        : http_(std::move(client)), cache_(std::make_shared<Cache>()) {}
-
-    fut::Future<std::vector<Film>> allFilms() const;
-    fut::Future<Film> filmById(const std::string& id) const;
+    explicit GhibliApi(HttpClient client) : http_(std::move(client)), cache_(std::make_shared<Cache>()) {}
+    fut::Future<std::vector<Film>> allFilms(fut::CancellationToken token = {}) const;
+    fut::Future<Film> filmById(const std::string& id, fut::CancellationToken token = {}) const;
 
 private:
     struct Cache {

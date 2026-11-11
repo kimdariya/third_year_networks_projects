@@ -14,7 +14,8 @@ std::string toLowerUnicode(const std::string& utf8) {
 }
 
 fut::Future<std::vector<Film>> FilmService::searchFilms(const std::string& query) const {
-    return fut::then(ghibli_.allFilms(), [q = toLowerUnicode(query)](std::vector<Film> all) {
+    fut::CancellationToken token;
+    return fut::then(ghibli_.allFilms(token), [q = toLowerUnicode(query)](std::vector<Film> all) {
         std::vector<Film> out;
         for (auto& f : all) {
             if (toLowerUnicode(f.title).find(q) != std::string::npos ||
@@ -27,13 +28,16 @@ fut::Future<std::vector<Film>> FilmService::searchFilms(const std::string& query
 }
 
 fut::Future<FilmDetails> FilmService::loadFilmDetails(const Film& selected) const {
-    auto imageFut = fut::then(wiki_.searchRussianTitle(selected.title),
-        [this](std::string ruTitle) {
-            if (ruTitle.empty()) return fut::ready(std::string{});
-            return wiki_.pageImage(ruTitle);
+    fut::CancellationToken token;
+
+    auto imageFut = fut::then(
+        wiki_.searchRussianTitle(selected.title, selected.original_title_romanised, token),
+        [this, token](std::string ruTitle) {
+            if (ruTitle.empty()) return fut::ready(std::string{}, token);
+            return wiki_.pageImage(ruTitle, token);
         });
 
-    auto extractFut = wiki_.extract(selected.title);
+    auto extractFut = wiki_.extract(selected.title, token);
 
     auto safeImage = fut::recover(std::move(imageFut), [](const std::exception& e) {
         std::cerr << "[warn] image: " << e.what() << "\n";
